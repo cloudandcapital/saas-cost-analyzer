@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "saas-cost-analyzer"
+version = "0.1.0"
+description = "FOCUS 1.0 normalization CLI for SaaS billing exports — unused license detection, forecasting, and period comparison"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Diana Molski", email = "polush@gmail.com" }]
+keywords = ["finops", "saas", "focus", "billing", "cost", "cli", "salesforce", "snowflake", "slack"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "click>=8.1.7",
+]
+
+[project.scripts]
+saas-cost = "saas_cost_analyzer.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/dianuhs/saas-cost-analyzer"
+Repository = "https://github.com/dianuhs/saas-cost-analyzer.git"
+"Bug Tracker" = "https://github.com/dianuhs/saas-cost-analyzer/issues"
+
+[tool.hatch.version]
+path = "saas_cost_analyzer/__init__.py"

@@ -1,0 +1,4 @@
+vendor,invoice_id,invoice_date,due_date,amount,currency,description,category
+Notion,INV-2026-001,2026-03-01,2026-03-31,96.00,USD,Team plan - 10 seats,Productivity
+Figma,INV-2026-002,2026-03-01,2026-03-31,225.00,USD,Organization plan,Design
+Linear,INV-2026-003,2026-03-01,2026-03-31,144.00,USD,Business plan - 12 seats,Project Management

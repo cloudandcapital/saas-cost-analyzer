@@ -1,0 +1,3 @@
+workspace,billing_period_start,billing_period_end,active_members,total_members,cost_per_seat,total_cost,currency
+example-corp,2026-03-01,2026-03-31,42,50,8.75,437.50,USD
+example-corp,2026-02-01,2026-02-28,40,50,8.75,437.50,USD

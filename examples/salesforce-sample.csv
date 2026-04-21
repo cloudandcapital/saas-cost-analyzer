@@ -1,0 +1,4 @@
+OrgId,ContractId,UserEmail,LicenseType,BilledAmount,Currency,BillingPeriodStart,BillingPeriodEnd,SeatsLicensed,SeatsActive
+00D000001,CNT-001,alice@example.com,Salesforce Enterprise,250.00,USD,2026-03-01,2026-03-31,1,1
+00D000001,CNT-001,bob@example.com,Salesforce Enterprise,250.00,USD,2026-03-01,2026-03-31,1,0
+00D000001,CNT-001,carol@example.com,Salesforce Enterprise,250.00,USD,2026-03-01,2026-03-31,1,1
