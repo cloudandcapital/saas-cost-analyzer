@@ -1,17 +1,17 @@
 # SaaS Cost Analyzer
 
-[![CI](https://github.com/dianuhs/saas-cost-analyzer/actions/workflows/test.yml/badge.svg)](https://github.com/dianuhs/saas-cost-analyzer/actions/workflows/test.yml)
+[![CI](https://github.com/cloudandcapital/saas-cost-analyzer/actions/workflows/test.yml/badge.svg)](https://github.com/cloudandcapital/saas-cost-analyzer/actions/workflows/test.yml)
 
 **The SaaS spend layer of a Cloud+ FinOps practice — Cloud + AI + SaaS = full tech spend coverage.**
 
 | Stage | Tool | What it does |
 |-------|------|-------------|
-| **Visibility** | [FinOps Lite](https://github.com/dianuhs/finops-lite) | AWS/Azure/GCP cost visibility, FOCUS 1.0 export |
-| **Variance** | [FinOps Watchdog](https://github.com/dianuhs/finops-watchdog) | Anomaly detection from any cost CSV |
-| **Tradeoffs** | [Recovery Economics](https://github.com/dianuhs/recovery-economics) | Resilience cost modeling, scenario comparison |
-| **AI Spend** | [AI Cost Lens](https://github.com/dianuhs/ai-cost-lens) | OpenAI/Anthropic/Bedrock billing → FOCUS 1.0 |
-| **SaaS Spend** | [SaaS Cost Analyzer](https://github.com/dianuhs/saas-cost-analyzer) | SaaS billing → FOCUS 1.0, unused licenses, forecasting |
-| **Dashboard** | [Cloud Cost Guard](https://github.com/dianuhs/cloud-cost-guard) | Unified spend dashboard |
+| **Visibility** | [FinOps Lite](https://github.com/cloudandcapital/finops-lite) | AWS/Azure/GCP cost visibility, FOCUS 1.0 export |
+| **Variance** | [FinOps Watchdog](https://github.com/cloudandcapital/finops-watchdog) | Anomaly detection from any cost CSV |
+| **Tradeoffs** | [Recovery Economics](https://github.com/cloudandcapital/recovery-economics) | Resilience cost modeling, scenario comparison |
+| **AI Spend** | [AI Cost Lens](https://github.com/cloudandcapital/ai-cost-lens) | OpenAI/Anthropic/Bedrock billing → FOCUS 1.0 |
+| **SaaS Spend** | [SaaS Cost Analyzer](https://github.com/cloudandcapital/saas-cost-analyzer) | SaaS billing → FOCUS 1.0, unused licenses, forecasting |
+| **Dashboard** | [Cloud Cost Guard](https://github.com/cloudandcapital/cloud-cost-guard) | Unified spend dashboard |
 
 Most FinOps practices stop at cloud infrastructure. This pipeline extends to the full tech spend picture: infrastructure costs (FinOps Lite), AI model costs (AI Cost Lens), and SaaS subscription costs (SaaS Cost Analyzer) — all normalized to FOCUS 1.0 so they can be aggregated, compared, and surfaced in a single dashboard.
 
@@ -38,7 +38,7 @@ Most FinOps practices stop at cloud infrastructure. This pipeline extends to the
 ```bash
 pip install -e .
 # or
-pipx install "git+https://github.com/dianuhs/saas-cost-analyzer.git"
+pipx install "git+https://github.com/cloudandcapital/saas-cost-analyzer.git"
 ```
 
 ## Provider Support
