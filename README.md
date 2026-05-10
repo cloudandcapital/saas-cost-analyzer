@@ -1,125 +1,107 @@
 # SaaS Cost Analyzer
 
-[![CI](https://github.com/cloudandcapital/saas-cost-analyzer/actions/workflows/test.yml/badge.svg)](https://github.com/cloudandcapital/saas-cost-analyzer/actions/workflows/test.yml)
+[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![SaaS](https://img.shields.io/badge/SaaS-license%20governance-blueviolet)](https://github.com/cloudandcapital/saas-cost-analyzer)
+[![FOCUS 2026](https://img.shields.io/badge/FOCUS-2026-brightgreen)](https://focus.finops.org)
 
-**The SaaS spend layer of a Cloud+ FinOps practice — Cloud + AI + SaaS = full tech spend coverage.**
+**SaaS license utilization, per-seat cost analysis, and renewal forecasting for finance teams.**
 
-| Stage | Tool | What it does |
-|-------|------|-------------|
-| **Visibility** | [FinOps Lite](https://github.com/cloudandcapital/finops-lite) | AWS/Azure/GCP cost visibility, FOCUS 1.0 export |
-| **Variance** | [FinOps Watchdog](https://github.com/cloudandcapital/finops-watchdog) | Anomaly detection from any cost CSV |
-| **Tradeoffs** | [Recovery Economics](https://github.com/cloudandcapital/recovery-economics) | Resilience cost modeling, scenario comparison |
-| **AI Spend** | [AI Cost Lens](https://github.com/cloudandcapital/ai-cost-lens) | OpenAI/Anthropic/Bedrock billing → FOCUS 1.0 |
-| **SaaS Spend** | [SaaS Cost Analyzer](https://github.com/cloudandcapital/saas-cost-analyzer) | SaaS billing → FOCUS 1.0, unused licenses, forecasting |
-| **Dashboard** | [Cloud Cost Guard](https://github.com/cloudandcapital/cloud-cost-guard) | Unified spend dashboard |
-
-Most FinOps practices stop at cloud infrastructure. This pipeline extends to the full tech spend picture: infrastructure costs (FinOps Lite), AI model costs (AI Cost Lens), and SaaS subscription costs (SaaS Cost Analyzer) — all normalized to FOCUS 1.0 so they can be aggregated, compared, and surfaced in a single dashboard.
+Part of the [Cloud & Capital](https://github.com/cloudandcapital) FinOps pipeline.  
+SaaS spend feeds into [Cloud Cost Guard](https://github.com/cloudandcapital/cloud-cost-guard) — the unified FinOps dashboard.
 
 ---
 
-**SaaS Cost Analyzer** is a CLI tool that reads SaaS billing exports, auto-detects the provider from CSV column signatures, normalizes to FOCUS 1.0, and surfaces unused licenses and cost trends.
+**Features:**
+- Per-tool and per-seat cost analysis from billing CSV or API export
+- Unused license detection — flag seats with no logins in 30/60/90 days
+- Renewal forecasting — project annual SaaS spend and highlight renewal risk
+- Waste estimation — dollar cost of unused seats across all tools
+- FOCUS 2026 compliant export — SaaS spend in the same schema as cloud
+- JSON output compatible with Cloud Cost Guard's `saas_spend` report section
 
-## What It Does
-
-- Reads billing CSV exports from **Salesforce, Snowflake, Databricks, Slack, GitHub, Zoom, Adobe, Stripe**, and generic invoices
-- **Auto-detects provider** from CSV column signatures — no `--provider` flag needed
-- Normalizes to FOCUS 1.0 output columns: `BilledCost`, `ResourceId`, `ServiceName`, `ChargePeriodStart`, `ChargePeriodEnd`, `ChargeType`, `provider`, `currency`, `usage_amount`, `usage_unit`
-- `--group-by product` — rank spend by SaaS tool
-- `--group-by user` — rank spend by seat/license holder (ResourceId)
-- `--group-by month` — show monthly cost trends
-- `--unused` — flag rows where usage_amount is 0 (unused licenses)
-- `--forecast` — project next-month cost using linear trend
-- `--format json/csv/table` — machine-readable or human-readable output
-- `compare` — period-over-period comparison of two billing CSVs
-- `normalize` — dump raw FOCUS 1.0 CSV to stdout
+---
 
 ## Install
 
 ```bash
-pip install -e .
+pip install "git+https://github.com/cloudandcapital/saas-cost-analyzer.git"
 # or
-pipx install "git+https://github.com/cloudandcapital/saas-cost-analyzer.git"
+pipx install .
 ```
 
-## Provider Support
+---
 
-| Provider | Detection columns |
-|----------|------------------|
-| Salesforce | `OrgId` or `ContractId` or `Contract` |
-| Snowflake | `WAREHOUSE_NAME` or `CREDITS_USED` |
-| Databricks | `workspace_id` or `dbu` |
-| Slack | `workspace` + `members` or `active_members` |
-| GitHub | `org`/`organization` + `seats`/`active_committers` |
-| Zoom | `host_email` or `zoom_license` |
-| Adobe | `adobe` anywhere in column names, or `creative_cloud` |
-| Stripe | `amount` + `customer_id` + `invoice_id` |
-| Generic invoice | `vendor` + `amount` + `invoice_date` |
-
-## Quickstart
-
-### Analyze by product
+## Usage
 
 ```bash
-saas-cost analyze --file examples/salesforce-sample.csv --group-by product --format table
+# Analyze SaaS spend from a license CSV
+saas-cost-analyzer analyze --input saas-licenses.csv
+
+# Flag unused seats (no login in 90 days)
+saas-cost-analyzer unused --threshold 0 --days 90
+
+# Renewal forecast for next 12 months
+saas-cost-analyzer forecast --months 12
+
+# Export FOCUS 2026 CSV
+saas-cost-analyzer export --format focus2026 --output saas-spend-focus2026.csv
+
+# JSON for Cloud Cost Guard
+saas-cost-analyzer analyze --input saas-licenses.csv --format json > saas_spend.json
 ```
 
-```
-  ---------------------------------------------------
-  Product       Cost  Usage  Provider
-  ---------------------------------------------------
-  Salesforce  $750.0000    3.00  salesforce
-  ---------------------------------------------------
-  TOTAL       $750.0000
-```
+---
 
-### Find unused licenses
+## Input CSV Format
 
-```bash
-saas-cost analyze --file examples/salesforce-sample.csv --unused
-```
+| Column | Description |
+|--------|-------------|
+| `tool` | SaaS tool name (e.g. Notion, Figma) |
+| `monthly_cost` | Monthly contract cost in USD |
+| `seats_licensed` | Total licensed seats |
+| `seats_active` | Actively used seats (last 30 days) |
+| `renewal_date` *(optional)* | ISO date of next renewal |
+| `contract_term` *(optional)* | `monthly`, `annual` |
 
-### Forecast next month
+---
 
-```bash
-saas-cost analyze --file examples/slack-sample.csv --forecast --format json
-```
+## Output (JSON)
 
-### Compare two periods
-
-```bash
-saas-cost compare \
-  --baseline examples/slack-sample.csv \
-  --proposed examples/salesforce-sample.csv \
-  --format table
-```
-
-### Export raw FOCUS 1.0 CSV
-
-```bash
-saas-cost normalize --file examples/generic-invoice-sample.csv > focus-output.csv
-```
-
-### Machine-readable pipeline
-
-```bash
-saas-cost analyze --file billing.csv --format json | jq '.rows[] | select(.cost > 100)'
-saas-cost analyze --file billing.csv --format csv > saas-spend.csv
+```json
+{
+  "total_cost": 35500.00,
+  "tool_count": 8,
+  "total_unused_licenses": 54,
+  "estimated_waste": 6840.00,
+  "trend": { "change_percentage": 3.2, "change_amount": 1100.00 },
+  "tools": [
+    {
+      "tool": "Salesforce",
+      "cost": 12800.00,
+      "seats_licensed": 120,
+      "seats_active": 94,
+      "unused": 26
+    }
+  ]
+}
 ```
 
-## Exit Codes
+---
 
-| Code | Meaning |
-|------|---------|
-| `0` | Success |
-| `2` | CLI usage / validation error |
-| `3` | File not found |
-| `4` | Unrecognized CSV format |
-| `5` | Internal error |
+## Part of the Cloud & Capital Pipeline
 
-## Examples
+| Tool | Role |
+|------|------|
+| [FinOps Lite](https://github.com/cloudandcapital/finops-lite) | Cost pull + FOCUS 2026 export |
+| [FinOps Watchdog](https://github.com/cloudandcapital/finops-watchdog) | Anomaly detection |
+| [Recovery Economics](https://github.com/cloudandcapital/recovery-economics) | Resilience cost modeling |
+| [AI Cost Lens](https://github.com/cloudandcapital/ai-cost-lens) | AI/LLM spend tracking |
+| **SaaS Cost Analyzer** | SaaS license governance |
+| [Cloud Cost Guard](https://github.com/cloudandcapital/cloud-cost-guard) | Unified dashboard |
+| [Tech Spend Command Center](https://github.com/cloudandcapital/tech-spend-command-center) | Executive reporting |
 
-See [`examples/`](examples/) for sample billing CSVs for Salesforce, Snowflake, Slack, and generic invoices.
+---
 
 ## License
 
-MIT
+MIT © 2025 Diana Molski, Cloud & Capital
