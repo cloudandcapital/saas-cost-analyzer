@@ -72,6 +72,8 @@ The JSON bundle has top-level `mode`, `as_of`, `currency`, `inactivity_days`, `a
 
 Dates use `YYYY-MM-DD`. Invoice periods are half-open (`period_start` inclusive, `period_end` exclusive), must not overlap within an application, and renewal dates may equal but not precede `as_of`. Money is finite and non-negative. One result declares one three-letter ISO currency; per-row mixed currencies are intentionally unsupported. Duplicate application, invoice, and assigned-user IDs fail, and assignments cannot exceed purchased seats. See [the illustrative fixture](examples/illustrative-governance-v2.json) for the complete shape.
 
+Contract `evidence_status` is either `verified_document` or `user_supplied`. `verified_document` means the modeled contract terms were taken from a supporting contract document and gives an otherwise eligible opportunity medium confidence; it does not independently verify savings or contract interpretation. `user_supplied` means the terms were entered without that document-backed status and gives an otherwise eligible opportunity low confidence. Both statuses remain visible in analysis, metric dimensions, findings, and opportunity lineage.
+
 `billing_cadence` supports `monthly`, `quarterly`, and `annual`. `unit_price` is the price for one purchased seat for that cadence, while `commitment` is the total contract amount for the same cadence. The strict model requires `commitment = purchased_seats * unit_price`; tiered, discounted, consumption-priced, or mixed-cadence contracts require a future explicit model rather than an inferred adjustment. Monthly values divide by 1, 3, or 12 cadence months, and annualized values multiply the normalized monthly amount by 12.
 
 Classification is evaluated as of the bundle date:
@@ -84,6 +86,8 @@ reviewable = inactive + unassigned               only when both evidence gates p
 monthly unit price = cadence unit price / cadence months
 annual modeled capacity = reviewable * monthly unit price * 12
 ```
+
+The notice deadline is `renewal_date - notice_days`. A notice window is `open` while that deadline is on or after `as_of`, including the deadline itself. It is `closed` after the deadline has passed, and `renewal_due` when the renewal date equals `as_of`. Only open windows can emit an actionable renewal opportunity. Closed or renewal-due windows retain modeled capacity as informational, classify it as blocked for reconciliation, and emit a timing finding; the tool does not move the capacity to a future renewal or infer a new deadline.
 
 The inactivity threshold is the declared `inactivity_days`; there is no hidden three-day rule. Activity exactly on the cutoff is active, while activity strictly before it is inactive. `activity_freshness_days` separately controls whether the activity extract is current enough to classify.
 
@@ -99,7 +103,7 @@ Seat states are deliberately distinct:
 
 Utilization is `active seats / purchased seats * 100`. When those evidence gates fail or purchased seats are zero, utilization is unknown rather than a misleading zero.
 
-Current spend is the observed sum of supplied invoice amounts over their explicit half-open periods. Annualized spend is the cadence-normalized contractual commitment, not an annualization of arbitrary invoice rows. Renewal exposure is that annualized commitment at the explicit renewal date; estimated avoidable capacity is only the reviewable-seat subset at the normalized unit rate. Renewal exposure and annualized commitment are the same accounting amount and must not be added together.
+Supplied invoice amount is the observed sum of only the invoice rows present in the input over their explicit half-open periods. Invoice-ledger completeness is not asserted, so this value must not be interpreted as complete current spend. Annualized spend is the cadence-normalized contractual commitment, not an annualization of arbitrary invoice rows. Renewal exposure is that annualized commitment at the explicit renewal date; estimated avoidable capacity is only the reviewable-seat subset at the normalized unit rate. Renewal exposure and annualized commitment are the same accounting amount and must not be added together.
 
 The modeled capacity is non-additive at the executive-report boundary until an approved change is implemented and later invoices verify the outcome.
 

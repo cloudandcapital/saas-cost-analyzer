@@ -271,12 +271,29 @@ def analyze_bundle(bundle: Bundle) -> dict[str, Any]:
         monthly_capacity = (
             Decimal(reviewable) * unit_price_monthly if reviewable is not None else None
         )
-        invoice_total = sum(
+        supplied_invoice_amount = sum(
             (_decimal(row["amount"], "invoice amount") for row in app["invoices"]),
             Decimal("0"),
         )
         renewal = _date(contract["renewal_date"], "renewal_date")
         notice_deadline = renewal - timedelta(days=int(contract["notice_days"]))
+        if renewal == as_of:
+            notice_window_status = "renewal_due"
+        elif notice_deadline >= as_of:
+            notice_window_status = "open"
+        else:
+            notice_window_status = "closed"
+        annual_capacity = (
+            monthly_capacity * Decimal("12") if monthly_capacity is not None else None
+        )
+        eligible_capacity = (
+            annual_capacity if notice_window_status == "open" else Decimal("0")
+        )
+        blocked_capacity = (
+            annual_capacity
+            if notice_window_status in {"closed", "renewal_due"}
+            else Decimal("0")
+        )
         results.append(
             {
                 "id": app["id"],
@@ -298,8 +315,9 @@ def analyze_bundle(bundle: Bundle) -> dict[str, Any]:
                     and unknown == 0
                     else None
                 ),
-                "invoice_total": float(invoice_total),
+                "supplied_invoice_amount": float(supplied_invoice_amount),
                 "invoice_count": len(app["invoices"]),
+                "invoice_completeness": "not_asserted",
                 "billing_cadence": cadence,
                 "cadence_months": int(cadence_months),
                 "unit_price": float(unit_price),
@@ -311,14 +329,20 @@ def analyze_bundle(bundle: Bundle) -> dict[str, Any]:
                 "renewal_date": renewal.isoformat(),
                 "notice_deadline": notice_deadline.isoformat(),
                 "days_to_notice_deadline": (notice_deadline - as_of).days,
+                "notice_window_status": notice_window_status,
+                "contract_evidence_status": contract["evidence_status"],
                 "reviewable_seats": reviewable,
                 "estimated_monthly_reduction_capacity_at_renewal": (
                     float(monthly_capacity) if monthly_capacity is not None else None
                 ),
                 "estimated_annual_reduction_capacity_at_renewal": (
-                    float(monthly_capacity * 12)
-                    if monthly_capacity is not None
-                    else None
+                    float(annual_capacity) if annual_capacity is not None else None
+                ),
+                "eligible_annual_reduction_capacity_at_renewal": (
+                    float(eligible_capacity) if annual_capacity is not None else None
+                ),
+                "blocked_annual_reduction_capacity_at_renewal": (
+                    float(blocked_capacity) if annual_capacity is not None else None
                 ),
                 "reconciliation": {
                     "assigned_seats": len(assignments),

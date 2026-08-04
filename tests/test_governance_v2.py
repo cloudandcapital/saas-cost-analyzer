@@ -68,6 +68,9 @@ def test_ccac_is_deterministic_and_validatable():
     assert len(result["opportunities"]) == 1
     opportunity = result["opportunities"][0]
     assert opportunity["estimate"]["low"] == 0
+    assert opportunity["confidence"] == "low"
+    assert opportunity["scope"]["notice_window_status"] == "open"
+    assert opportunity["scope"]["contract_evidence_status"] == "user_supplied"
     assert opportunity["review"]["approval_required"] is True
     assert "verified savings" not in opportunity["title"].lower()
     assert any(
@@ -75,12 +78,16 @@ def test_ccac_is_deterministic_and_validatable():
         for metric in result["metrics"]
     )
     reconciliation = result["extensions"]["saas_cost_analyzer"]["reconciliation"]
-    assert reconciliation["observed_invoice_spend"] == 9690
+    assert reconciliation["supplied_invoice_amount"] == 9690
+    assert reconciliation["invoice_completeness"] == "not_asserted"
     assert reconciliation["normalized_monthly_commitment"] == 1070
     assert reconciliation["annualized_commitment"] == 12840
-    assert reconciliation["estimated_annual_reduction_capacity"] == 4320
+    assert reconciliation["total_modeled_review_capacity"] == 4320
+    assert reconciliation["open_notice_window_eligible_capacity"] == 4320
+    assert reconciliation["blocked_notice_window_capacity"] == 0
     assert reconciliation["opportunity_expected_total"] == 4320
-    assert reconciliation["opportunity_difference"] == 0
+    assert reconciliation["eligible_capacity_to_opportunity_difference"] == 0
+    assert reconciliation["modeled_capacity_balance_difference"] == 0
     assert reconciliation["assigned_seats"] == 6
     assert reconciliation["classified_assigned_seats"] == 6
     assert opportunity["overlap"]["group_id"].startswith("overlap.saas.crm-")
@@ -207,6 +214,125 @@ def test_renewal_boundary_is_inclusive_and_past_date_rejected(tmp_path: Path):
     value["applications"][0]["contract"]["renewal_date"] = "2026-07-30"
     with pytest.raises(GovernanceError, match="before as_of"):
         load_bundle(_write_bundle(tmp_path, value, "past.json"))
+
+
+def test_open_notice_window_before_deadline_emits_opportunity():
+    result = build_result(DEMO, mode="illustrative")
+    crm = result["extensions"]["saas_cost_analyzer"]["analysis"]["applications"][0]
+    assert crm["notice_window_status"] == "open"
+    assert crm["days_to_notice_deadline"] > 0
+    assert len(result["opportunities"]) == 1
+
+
+def test_notice_deadline_is_inclusive_for_opportunity(tmp_path: Path):
+    value = _bundle_value()
+    value["applications"][0]["contract"]["renewal_date"] = "2026-09-29"
+    result = build_result(_write_bundle(tmp_path, value), mode="illustrative")
+    crm = result["extensions"]["saas_cost_analyzer"]["analysis"]["applications"][0]
+    assert crm["notice_deadline"] == value["as_of"]
+    assert crm["notice_window_status"] == "open"
+    assert any(
+        opportunity["scope"]["application_id"] == "crm"
+        for opportunity in result["opportunities"]
+    )
+
+
+@pytest.mark.parametrize(
+    "renewal_date,expected_status",
+    [("2026-08-30", "closed"), ("2026-07-31", "renewal_due")],
+)
+def test_blocked_notice_windows_emit_finding_not_opportunity(
+    tmp_path: Path, renewal_date: str, expected_status: str
+):
+    value = _bundle_value()
+    value["applications"][0]["contract"]["renewal_date"] = renewal_date
+    result = build_result(_write_bundle(tmp_path, value), mode="illustrative")
+    crm = result["extensions"]["saas_cost_analyzer"]["analysis"]["applications"][0]
+    assert crm["notice_window_status"] == expected_status
+    assert crm["estimated_annual_reduction_capacity_at_renewal"] == 4320
+    assert crm["eligible_annual_reduction_capacity_at_renewal"] == 0
+    assert crm["blocked_annual_reduction_capacity_at_renewal"] == 4320
+    assert not any(
+        opportunity["scope"]["application_id"] == "crm"
+        for opportunity in result["opportunities"]
+    )
+    assert any(
+        expected_status in finding["id"]
+        and "no actionable opportunity" in finding["description"]
+        for finding in result["findings"]
+    )
+    reconciliation = result["extensions"]["saas_cost_analyzer"]["reconciliation"]
+    assert reconciliation["total_modeled_review_capacity"] == 4320
+    assert reconciliation["open_notice_window_eligible_capacity"] == 0
+    assert reconciliation["blocked_notice_window_capacity"] == 4320
+    assert reconciliation["opportunity_expected_total"] == 0
+    assert reconciliation["eligible_capacity_to_opportunity_difference"] == 0
+    assert reconciliation["modeled_capacity_balance_difference"] == 0
+    assert reconciliation["status"] == "passed"
+
+
+@pytest.mark.parametrize(
+    "evidence_status,expected_confidence",
+    [("user_supplied", "low"), ("verified_document", "medium")],
+)
+def test_contract_evidence_status_is_preserved_and_controls_confidence(
+    tmp_path: Path, evidence_status: str, expected_confidence: str
+):
+    value = _bundle_value()
+    value["applications"][0]["contract"]["evidence_status"] = evidence_status
+    result = build_result(_write_bundle(tmp_path, value), mode="illustrative")
+    crm = result["extensions"]["saas_cost_analyzer"]["analysis"]["applications"][0]
+    assert crm["contract_evidence_status"] == evidence_status
+    metric = next(
+        metric
+        for metric in result["metrics"]
+        if metric["id"].endswith(".annual-reduction-capacity")
+        and metric["dimensions"]["application_id"] == "crm"
+    )
+    assert metric["dimensions"]["contract_evidence_status"] == evidence_status
+    opportunity = next(
+        opportunity
+        for opportunity in result["opportunities"]
+        if opportunity["scope"]["application_id"] == "crm"
+    )
+    assert opportunity["scope"]["contract_evidence_status"] == evidence_status
+    assert opportunity["confidence"] == expected_confidence
+
+    value["applications"][0]["contract"]["renewal_date"] = "2026-08-30"
+    blocked_result = build_result(
+        _write_bundle(tmp_path, value, f"{evidence_status}-blocked.json"),
+        mode="illustrative",
+    )
+    timing_finding = next(
+        finding
+        for finding in blocked_result["findings"]
+        if "notice-window-closed" in finding["id"]
+    )
+    assert evidence_status in timing_finding["description"]
+
+
+def test_supplied_invoice_metric_does_not_claim_ledger_completeness():
+    result = build_result(DEMO, mode="illustrative")
+    metric = next(
+        metric
+        for metric in result["metrics"]
+        if metric["dimensions"]["application_id"] == "crm"
+        and metric["id"].endswith(".invoice-cost")
+    )
+    assert metric["name"] == "Supplied invoice amount"
+    assert "supplied non-overlapping invoice rows only" in metric["formula"]
+    assert "completeness is not asserted" in metric["formula"]
+    assert metric["period"] == {
+        "start": "2026-01-01",
+        "end": "2027-01-01",
+        "timezone": "UTC",
+    }
+    extension = result["extensions"]["saas_cost_analyzer"]
+    assert (
+        extension["analysis"]["applications"][0]["invoice_completeness"]
+        == "not_asserted"
+    )
+    assert extension["reconciliation"]["invoice_completeness"] == "not_asserted"
 
 
 def test_zero_cost_and_zero_seat_application_is_valid(tmp_path: Path):

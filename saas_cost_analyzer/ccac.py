@@ -162,6 +162,7 @@ def build_result(
             "application": app["name"],
             "owner": app["owner"],
             "billing_cadence": app["billing_cadence"],
+            "contract_evidence_status": app["contract_evidence_status"],
         }
         values = [
             ("purchased-seats", "Purchased seats", app["purchased_seats"]),
@@ -250,14 +251,15 @@ def build_result(
         metrics.append(
             _metric(
                 f"{prefix}.invoice-cost",
-                "Observed invoice cost",
-                app["invoice_total"],
+                "Supplied invoice amount",
+                app["supplied_invoice_amount"],
                 "currency",
                 "observed",
                 invoice_period,
                 dims,
                 evidence_id,
                 currency=analysis["currency"],
+                formula="sum supplied non-overlapping invoice rows only; invoice ledger completeness is not asserted",
             )
         )
         metrics.append(
@@ -434,18 +436,49 @@ def build_result(
                     "last_observed_at": generated,
                 }
             )
-        if app["reviewable_seats"] is not None and app["reviewable_seats"] > 0:
-            annual = app["estimated_annual_reduction_capacity_at_renewal"]
+        if app["notice_window_status"] in {"closed", "renewal_due"}:
+            fid = f"finding.saas.{slug}.notice-window-{app['notice_window_status']}"
+            finding_ids.append(fid)
+            timing = (
+                f"The contractual notice deadline {app['notice_deadline']} has passed"
+                if app["notice_window_status"] == "closed"
+                else f"The renewal date {app['renewal_date']} is due as of the analysis date"
+            )
+            findings.append(
+                {
+                    "id": fid,
+                    "finding_type": "saas_governance",
+                    "title": f"Renewal notice window is {app['notice_window_status']} for {app['name']}",
+                    "description": (
+                        f"{timing}. Modeled review capacity remains informational and no actionable opportunity is emitted for this renewal. "
+                        f"Contract terms are {app['contract_evidence_status']}."
+                    ),
+                    "severity": "high",
+                    "status": "open",
+                    "metric_ids": [cap_id],
+                    "evidence_ids": [evidence_id],
+                    "first_observed_at": generated,
+                    "last_observed_at": generated,
+                }
+            )
+        if (
+            app["notice_window_status"] == "open"
+            and app["reviewable_seats"] is not None
+            and app["reviewable_seats"] > 0
+        ):
+            annual = app["eligible_annual_reduction_capacity_at_renewal"]
             opportunities.append(
                 {
                     "id": f"opportunity.saas.{slug}.renewal-seat-review",
                     "producer": {"name": "saas-cost-analyzer", "version": __version__},
                     "opportunity_type": "saas_reclaim",
-                    "title": f"Review {app['reviewable_seats']} {app['name']} seats before renewal",
+                    "title": f"Review {app['reviewable_seats']} {app['name']} seats by the open notice deadline",
                     "scope": {
                         "application_id": app["id"],
                         "renewal_date": app["renewal_date"],
                         "notice_deadline": app["notice_deadline"],
+                        "notice_window_status": "open",
+                        "contract_evidence_status": app["contract_evidence_status"],
                         "reviewable_seats": app["reviewable_seats"],
                     },
                     "estimate": {
@@ -457,7 +490,11 @@ def build_result(
                         "currency": analysis["currency"],
                         "formula": "0 lower bound; modeled upper capacity = reviewable seats * normalized monthly unit price * 12; realization only after approved renewal change and invoice verification",
                     },
-                    "confidence": "medium",
+                    "confidence": (
+                        "medium"
+                        if app["contract_evidence_status"] == "verified_document"
+                        else "low"
+                    ),
                     "evidence_ids": [evidence_id],
                     "related_finding_ids": finding_ids,
                     "related_opportunity_ids": [],
@@ -472,6 +509,7 @@ def build_result(
                         "rollback_plan_required": True,
                         "verification_required": True,
                         "non_mutating_review_steps": [
+                            f"Confirm the notice window remains open through {app['notice_deadline']} for the stated renewal.",
                             "Confirm the users and entitlements with the application owner.",
                             "Confirm contractual reduction rights and notice deadline.",
                             "Approve the renewal change outside this tool.",
@@ -481,6 +519,46 @@ def build_result(
                     "status": "identified",
                 }
             )
+    modeled_capacity = round(
+        sum(
+            app["estimated_annual_reduction_capacity_at_renewal"] or 0
+            for app in analysis["applications"]
+        ),
+        6,
+    )
+    eligible_capacity = round(
+        sum(
+            app["eligible_annual_reduction_capacity_at_renewal"] or 0
+            for app in analysis["applications"]
+        ),
+        6,
+    )
+    blocked_capacity = round(
+        sum(
+            app["blocked_annual_reduction_capacity_at_renewal"] or 0
+            for app in analysis["applications"]
+        ),
+        6,
+    )
+    opportunity_total = round(
+        sum(item["estimate"]["expected"] for item in opportunities), 6
+    )
+    eligible_difference = round(eligible_capacity - opportunity_total, 6)
+    capacity_balance_difference = round(
+        modeled_capacity - eligible_capacity - blocked_capacity, 6
+    )
+    assigned_seats = sum(app["assigned_seats"] for app in analysis["applications"])
+    classified_assigned_seats = sum(
+        app["active_seats"] + app["inactive_seats"] + app["unknown_activity_seats"]
+        for app in analysis["applications"]
+    )
+    reconciliation_status = (
+        "passed"
+        if eligible_difference == 0
+        and capacity_balance_difference == 0
+        and assigned_seats == classified_assigned_seats
+        else "failed"
+    )
     return {
         "contract": CONTRACT,
         "document_type": "tool_result",
@@ -506,39 +584,28 @@ def build_result(
                     "purchased_seats": sum(
                         app["purchased_seats"] for app in analysis["applications"]
                     ),
-                    "assigned_seats": sum(
-                        app["assigned_seats"] for app in analysis["applications"]
-                    ),
-                    "classified_assigned_seats": sum(
-                        app["active_seats"]
-                        + app["inactive_seats"]
-                        + app["unknown_activity_seats"]
+                    "assigned_seats": assigned_seats,
+                    "classified_assigned_seats": classified_assigned_seats,
+                    "supplied_invoice_amount": sum(
+                        app["supplied_invoice_amount"]
                         for app in analysis["applications"]
                     ),
-                    "observed_invoice_spend": sum(
-                        app["invoice_total"] for app in analysis["applications"]
-                    ),
+                    "invoice_completeness": "not_asserted",
                     "normalized_monthly_commitment": sum(
                         app["monthly_commitment"] for app in analysis["applications"]
                     ),
                     "annualized_commitment": sum(
                         app["annualized_commitment"] for app in analysis["applications"]
                     ),
-                    "estimated_annual_reduction_capacity": sum(
-                        app["estimated_annual_reduction_capacity_at_renewal"] or 0
-                        for app in analysis["applications"]
-                    ),
-                    "opportunity_expected_total": sum(
-                        item["estimate"]["expected"] for item in opportunities
-                    ),
-                    "opportunity_difference": sum(
-                        app["estimated_annual_reduction_capacity_at_renewal"] or 0
-                        for app in analysis["applications"]
-                    )
-                    - sum(item["estimate"]["expected"] for item in opportunities),
-                    "status": "passed",
+                    "total_modeled_review_capacity": modeled_capacity,
+                    "open_notice_window_eligible_capacity": eligible_capacity,
+                    "blocked_notice_window_capacity": blocked_capacity,
+                    "opportunity_expected_total": opportunity_total,
+                    "eligible_capacity_to_opportunity_difference": eligible_difference,
+                    "modeled_capacity_balance_difference": capacity_balance_difference,
+                    "status": reconciliation_status,
                 },
-                "accounting_boundary": "Invoice cost is observed; commitment is contractual; renewal capacity is estimated and non-additive until verified after implementation.",
+                "accounting_boundary": "Supplied invoice rows are observed but completeness is not asserted; commitment is contractual; renewal capacity is estimated and non-additive until verified after implementation.",
             }
         },
     }

@@ -10,6 +10,8 @@
 - Package the illustrative bundle and expose it through `saas-cost ccac --demo`.
 - Make the installed demo byte-identical across separate invocations by fixing its default illustrative run metadata.
 - Normalize monthly, quarterly, and annual per-seat contracts with explicit utilization, renewal exposure, and reconciliation lineage.
+- Classify notice windows at the exact deadline and renewal boundaries, emitting opportunities only while action remains timely.
+- Preserve contract evidence status in output lineage and label supplied invoice amounts without asserting ledger completeness.
 
 ## [0.1.0] - 2026-04-21
 ### Added
