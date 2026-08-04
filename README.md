@@ -32,7 +32,8 @@ saas-cost --version
 For development from a clone:
 
 ```bash
-python -m pip install -e .
+uv sync --locked --extra dev
+uv run saas-cost --version
 ```
 
 The bundled fixture and its default run metadata are deterministic and entirely illustrative. Its application and user names do not describe a customer.
