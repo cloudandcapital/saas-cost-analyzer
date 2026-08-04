@@ -3,16 +3,13 @@
 from __future__ import annotations
 
 import csv
-import io
 import json
 import sys
-from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List
 
 import click
 
-from .providers.detector import FOCUS_FIELDNAMES, FocusRecord, load_and_normalize
 from .analysis.engine import (
     flag_unused,
     forecast_next_month,
@@ -20,6 +17,9 @@ from .analysis.engine import (
     group_by_product,
     group_by_user,
 )
+from .ccac import build_result
+from .governance import GovernanceError, analyze_bundle, load_bundle
+from .providers.detector import FOCUS_FIELDNAMES, FocusRecord, load_and_normalize
 
 SCHEMA_VERSION = "1.0"
 EXIT_SUCCESS = 0
@@ -40,16 +40,136 @@ class SchemaDataError(Exception):
 @click.group()
 @click.version_option(package_name="saas-cost-analyzer")
 def cli() -> None:
-    """SaaS Cost Analyzer — FOCUS 1.0 normalization for SaaS billing exports."""
+    """SaaS Cost Analyzer — evidence-aware SaaS spend and renewal governance."""
+
+
+@cli.command("governance")
+@click.option(
+    "--input",
+    "input_path",
+    type=click.Path(path_type=Path, dir_okay=False),
+    required=True,
+    help="Strict saas-cost-analyzer/2.0 JSON bundle.",
+)
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["json", "table"]),
+    default="table",
+    show_default=True,
+)
+@click.pass_context
+def governance(ctx: click.Context, input_path: Path, output_format: str) -> None:
+    """Classify seats and renewal evidence without treating unknown activity as unused."""
+    try:
+        result = analyze_bundle(load_bundle(input_path))
+        if output_format == "json":
+            click.echo(json.dumps(result, indent=2))
+            return
+        click.echo(f"SaaS governance as of {result['as_of']} ({result['currency']})")
+        for app in result["applications"]:
+            unassigned = (
+                "unknown"
+                if app["unassigned_seats"] is None
+                else str(app["unassigned_seats"])
+            )
+            click.echo(
+                f"{app['name']}: purchased={app['purchased_seats']} assigned={app['assigned_seats']} active={app['active_seats']} inactive={app['inactive_seats']} unknown_activity={app['unknown_activity_seats']} unassigned={unassigned}"
+            )
+            capacity = app["estimated_annual_reduction_capacity_at_renewal"]
+            capacity_text = (
+                "unknown (evidence gates failed)"
+                if capacity is None
+                else f"{capacity:.2f} (not verified savings)"
+            )
+            click.echo(
+                f"  renewal={app['renewal_date']} notice_deadline={app['notice_deadline']} estimated_annual_capacity={capacity_text}"
+            )
+    except GovernanceError as exc:
+        click.echo(f"Schema/data error: {exc}", err=True)
+        ctx.exit(EXIT_SCHEMA_DATA_ERROR)
+
+
+@cli.command("ccac")
+@click.option(
+    "--input",
+    "input_path",
+    type=click.Path(path_type=Path, dir_okay=False),
+    help="Strict saas-cost-analyzer/2.0 JSON bundle.",
+)
+@click.option(
+    "--demo", is_flag=True, help="Use the packaged deterministic illustrative bundle."
+)
+@click.option(
+    "--mode",
+    type=click.Choice(["illustrative", "real"]),
+    help="Required with --input; demo is always illustrative.",
+)
+@click.option(
+    "--run-id", default=None, help="Optional UUID for deterministic pipeline runs."
+)
+@click.option("--generated-at", default=None, help="Optional RFC3339 timestamp.")
+@click.option(
+    "--output",
+    "output_path",
+    type=click.Path(path_type=Path, dir_okay=False),
+    default=None,
+    help="Write CCAC JSON instead of stdout.",
+)
+@click.pass_context
+def ccac(
+    ctx: click.Context,
+    input_path: Path | None,
+    demo: bool,
+    mode: str | None,
+    run_id: str | None,
+    generated_at: str | None,
+    output_path: Path | None,
+) -> None:
+    """Emit one CCAC 1.0 tool result to stdout; input access is read-only."""
+    try:
+        if demo == (input_path is not None):
+            raise GovernanceError("choose exactly one of --demo or --input")
+        if demo:
+            input_path = (
+                Path(__file__).parent / "data" / "illustrative-governance-v2.json"
+            )
+            mode = "illustrative"
+            run_id = run_id or "123e4567-e89b-12d3-a456-426614174040"
+            generated_at = generated_at or "2026-08-04T12:20:00Z"
+        elif mode is None:
+            raise GovernanceError("--mode is required with --input")
+        assert input_path is not None and mode is not None
+        content = (
+            json.dumps(
+                build_result(
+                    input_path, mode=mode, run_id=run_id, generated_at=generated_at
+                ),
+                indent=2,
+            )
+            + "\n"
+        )
+        if output_path is None:
+            click.echo(content, nl=False)
+        else:
+            output_path.write_text(content, encoding="utf-8")
+    except GovernanceError as exc:
+        click.echo(f"Schema/data error: {exc}", err=True)
+        ctx.exit(EXIT_SCHEMA_DATA_ERROR)
+    except OSError as exc:
+        click.echo(f"Input file error: {exc}", err=True)
+        ctx.exit(EXIT_INPUT_FILE_ERROR)
 
 
 # ---------------------------------------------------------------------------
 # analyze
 # ---------------------------------------------------------------------------
 
+
 @cli.command("analyze")
 @click.option(
-    "--file", "file_path",
+    "--file",
+    "file_path",
     type=click.Path(path_type=Path, dir_okay=False),
     required=True,
     help="Path to SaaS billing CSV export.",
@@ -62,7 +182,8 @@ def cli() -> None:
     help="Aggregate by product, user (ResourceId), or calendar month.",
 )
 @click.option(
-    "--format", "output_format",
+    "--format",
+    "output_format",
     type=click.Choice(["json", "csv", "table"], case_sensitive=False),
     default="table",
     show_default=True,
@@ -72,7 +193,7 @@ def cli() -> None:
     "--unused",
     is_flag=True,
     default=False,
-    help="Report unused licenses (rows where usage_amount is 0 or empty).",
+    help="Legacy report of rows with explicitly numeric zero usage; blank usage remains unknown.",
 )
 @click.option(
     "--forecast",
@@ -116,21 +237,25 @@ def analyze(
 # compare
 # ---------------------------------------------------------------------------
 
+
 @cli.command("compare")
 @click.option(
-    "--baseline", "baseline_path",
+    "--baseline",
+    "baseline_path",
     type=click.Path(path_type=Path, dir_okay=False),
     required=True,
     help="Path to baseline period billing CSV.",
 )
 @click.option(
-    "--proposed", "proposed_path",
+    "--proposed",
+    "proposed_path",
     type=click.Path(path_type=Path, dir_okay=False),
     required=True,
     help="Path to proposed/comparison period billing CSV.",
 )
 @click.option(
-    "--format", "output_format",
+    "--format",
+    "output_format",
     type=click.Choice(["json", "csv", "table"], case_sensitive=False),
     default="table",
     show_default=True,
@@ -153,9 +278,12 @@ def compare(
         proposed_rows = _aggregate(proposed_records, "product")
 
         _emit_compare(
-            baseline_rows, proposed_rows,
-            str(baseline_path), str(proposed_path),
-            fmt, sys.stdout,
+            baseline_rows,
+            proposed_rows,
+            str(baseline_path),
+            str(proposed_path),
+            fmt,
+            sys.stdout,
         )
 
     except InputFileError as exc:
@@ -173,9 +301,11 @@ def compare(
 # normalize
 # ---------------------------------------------------------------------------
 
+
 @cli.command("normalize")
 @click.option(
-    "--file", "file_path",
+    "--file",
+    "file_path",
     type=click.Path(path_type=Path, dir_okay=False),
     required=True,
     help="Path to SaaS billing CSV export.",
@@ -208,6 +338,7 @@ def normalize(ctx: click.Context, file_path: Path) -> None:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _load(path: Path) -> List[FocusRecord]:
     if not path.exists():
         raise InputFileError(f"File not found: {path}")
@@ -230,6 +361,7 @@ def _aggregate(records: List[FocusRecord], group_by: str) -> List[Dict[str, Any]
 # ---------------------------------------------------------------------------
 # Emit: analyze
 # ---------------------------------------------------------------------------
+
 
 def _emit_analyze(
     rows: List[Dict[str, Any]],
@@ -276,14 +408,18 @@ def _emit_analyze(
             for row in unused_rows:
                 u_writer.writerow(row)
         if forecast_data is not None:
-            out.write(f"\n# Forecast\nprojected_cost,{forecast_data['projected_cost']}\n")
+            out.write(
+                f"\n# Forecast\nprojected_cost,{forecast_data['projected_cost']}\n"
+            )
 
     else:
         _print_table(rows, label, out)
         if unused_rows:
             out.write(f"\nUnused licenses ({len(unused_rows)} row(s)):\n")
             for ur in unused_rows:
-                out.write(f"  {ur.get('ResourceId', '')}  {ur.get('ServiceName', '')}  cost={ur.get('BilledCost', '')}\n")
+                out.write(
+                    f"  {ur.get('ResourceId', '')}  {ur.get('ServiceName', '')}  cost={ur.get('BilledCost', '')}\n"
+                )
         if forecast_data is not None:
             proj = forecast_data["projected_cost"]
             method = forecast_data["method"]
@@ -296,9 +432,7 @@ def _print_table(rows: List[Dict[str, Any]], label: str, out) -> None:
         return
     key_w = max(len(label), max(len(str(r["key"])) for r in rows))
     prov_w = max(8, max(len(str(r.get("provider", ""))) for r in rows))
-    header = (
-        f"  {label:<{key_w}}  {'Cost':>12}  {'Usage':>10}  {'Provider':<{prov_w}}"
-    )
+    header = f"  {label:<{key_w}}  {'Cost':>12}  {'Usage':>10}  {'Provider':<{prov_w}}"
     sep = "  " + "-" * (len(header) - 2)
     out.write(f"{sep}\n{header}\n{sep}\n")
     total_cost = 0.0
@@ -316,6 +450,7 @@ def _print_table(rows: List[Dict[str, Any]], label: str, out) -> None:
 # Emit: compare
 # ---------------------------------------------------------------------------
 
+
 def _emit_compare(
     baseline: List[Dict],
     proposed: List[Dict],
@@ -332,12 +467,14 @@ def _emit_compare(
     for key in all_keys:
         b = b_map.get(key, 0.0)
         p = p_map.get(key, 0.0)
-        comparison_rows.append({
-            "key": key,
-            "baseline": round(b, 4),
-            "proposed": round(p, 4),
-            "delta": round(p - b, 4),
-        })
+        comparison_rows.append(
+            {
+                "key": key,
+                "baseline": round(b, 4),
+                "proposed": round(p, 4),
+                "delta": round(p - b, 4),
+            }
+        )
     comparison_rows.sort(key=lambda r: abs(r["delta"]), reverse=True)
 
     total_b = sum(r["baseline"] for r in comparison_rows)
@@ -367,12 +504,16 @@ def _emit_compare(
         writer.writeheader()
         for row in comparison_rows:
             writer.writerow(row)
-        out.write(f"TOTAL,{round(total_b, 4)},{round(total_p, 4)},{round(total_d, 4)}\n")
+        out.write(
+            f"TOTAL,{round(total_b, 4)},{round(total_p, 4)},{round(total_d, 4)}\n"
+        )
         return
 
     # table
     label = "Product"
-    key_w = max(len(label), max((len(str(r["key"])) for r in comparison_rows), default=8))
+    key_w = max(
+        len(label), max((len(str(r["key"])) for r in comparison_rows), default=8)
+    )
     header = f"  {label:<{key_w}}  {'Baseline':>12}  {'Proposed':>12}  {'Delta':>12}"
     sep = "  " + "-" * (len(header) - 2)
 

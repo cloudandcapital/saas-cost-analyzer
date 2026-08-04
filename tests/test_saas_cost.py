@@ -11,12 +11,6 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from saas_cost_analyzer.cli import cli
-from saas_cost_analyzer.providers.detector import (
-    FOCUS_FIELDNAMES,
-    detect_provider,
-    load_and_normalize,
-)
 from saas_cost_analyzer.analysis.engine import (
     flag_unused,
     forecast_next_month,
@@ -24,11 +18,17 @@ from saas_cost_analyzer.analysis.engine import (
     group_by_product,
     group_by_user,
 )
-
+from saas_cost_analyzer.cli import cli
+from saas_cost_analyzer.providers.detector import (
+    FOCUS_FIELDNAMES,
+    detect_provider,
+    load_and_normalize,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _write_csv(tmp_path: Path, filename: str, content: str) -> Path:
     p = tmp_path / filename
@@ -107,6 +107,7 @@ OrgId,ContractId,UserEmail,LicenseType,BilledAmount,Currency,BillingPeriodStart,
 # Provider detection tests
 # ---------------------------------------------------------------------------
 
+
 def test_detect_salesforce():
     assert detect_provider({"OrgId", "ContractId", "UserEmail"}) == "salesforce"
 
@@ -116,7 +117,9 @@ def test_detect_salesforce_via_contract():
 
 
 def test_detect_snowflake():
-    assert detect_provider({"WAREHOUSE_NAME", "START_TIME", "CREDITS_USED"}) == "snowflake"
+    assert (
+        detect_provider({"WAREHOUSE_NAME", "START_TIME", "CREDITS_USED"}) == "snowflake"
+    )
 
 
 def test_detect_databricks():
@@ -132,7 +135,10 @@ def test_detect_github():
 
 
 def test_detect_stripe():
-    assert detect_provider({"invoice_id", "customer_id", "amount", "invoice_id"}) == "stripe"
+    assert (
+        detect_provider({"invoice_id", "customer_id", "amount", "invoice_id"})
+        == "stripe"
+    )
 
 
 def test_detect_generic_invoice():
@@ -152,6 +158,7 @@ def test_detect_empty_raises_value_error():
 # ---------------------------------------------------------------------------
 # Normalization tests
 # ---------------------------------------------------------------------------
+
 
 def test_normalize_has_focus_columns(tmp_path):
     p = _write_csv(tmp_path, "sf.csv", SALESFORCE_CSV)
@@ -230,6 +237,7 @@ def test_normalize_empty_csv_raises(tmp_path):
 # Analysis engine tests
 # ---------------------------------------------------------------------------
 
+
 def test_group_by_product(tmp_path):
     p = _write_csv(tmp_path, "sf.csv", SALESFORCE_CSV)
     records = load_and_normalize(p)
@@ -296,6 +304,7 @@ def test_forecast_linear_trend_method(tmp_path):
 # ---------------------------------------------------------------------------
 # CLI: analyze
 # ---------------------------------------------------------------------------
+
 
 def test_analyze_table_default(runner, tmp_path):
     p = _write_csv(tmp_path, "sf.csv", SALESFORCE_CSV)
@@ -369,7 +378,9 @@ def test_analyze_forecast_flag(runner, tmp_path):
 
 def test_analyze_forecast_json_has_projected_cost(runner, tmp_path):
     p = _write_csv(tmp_path, "slack.csv", SLACK_TWO_MONTHS_CSV)
-    result = runner.invoke(cli, ["analyze", "--file", str(p), "--format", "json", "--forecast"])
+    result = runner.invoke(
+        cli, ["analyze", "--file", str(p), "--format", "json", "--forecast"]
+    )
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert "forecast" in data
@@ -379,6 +390,7 @@ def test_analyze_forecast_json_has_projected_cost(runner, tmp_path):
 # ---------------------------------------------------------------------------
 # CLI: compare
 # ---------------------------------------------------------------------------
+
 
 def test_compare_shows_delta(runner, tmp_path):
     b = _write_csv(tmp_path, "baseline.csv", SALESFORCE_CSV)
@@ -393,7 +405,9 @@ def test_compare_shows_delta(runner, tmp_path):
 def test_compare_json_has_schema_version(runner, tmp_path):
     b = _write_csv(tmp_path, "baseline.csv", SALESFORCE_CSV)
     p = _write_csv(tmp_path, "proposed.csv", SLACK_CSV)
-    result = runner.invoke(cli, ["compare", "--baseline", str(b), "--proposed", str(p), "--format", "json"])
+    result = runner.invoke(
+        cli, ["compare", "--baseline", str(b), "--proposed", str(p), "--format", "json"]
+    )
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert data["schema_version"] == "1.0"
@@ -403,6 +417,7 @@ def test_compare_json_has_schema_version(runner, tmp_path):
 # ---------------------------------------------------------------------------
 # CLI: normalize
 # ---------------------------------------------------------------------------
+
 
 def test_normalize_writes_focus_csv(runner, tmp_path):
     p = _write_csv(tmp_path, "sf.csv", SALESFORCE_CSV)
@@ -418,8 +433,11 @@ def test_normalize_writes_focus_csv(runner, tmp_path):
 # CLI: exit codes
 # ---------------------------------------------------------------------------
 
+
 def test_exit_code_3_on_missing_file(runner, tmp_path):
-    result = runner.invoke(cli, ["analyze", "--file", str(tmp_path / "nonexistent.csv")])
+    result = runner.invoke(
+        cli, ["analyze", "--file", str(tmp_path / "nonexistent.csv")]
+    )
     assert result.exit_code == 3
 
 

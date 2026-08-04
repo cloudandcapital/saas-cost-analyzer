@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "saas-cost-analyzer"
-version = "0.1.0"
-description = "FOCUS 1.0 normalization CLI for SaaS billing exports — unused license detection, forecasting, and period comparison"
+version = "0.2.0"
+description = "Evidence-aware SaaS spend, entitlement, activity, and renewal governance with CCAC output"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -25,13 +25,31 @@ dependencies = [
     "click>=8.1.7",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "black>=26,<27",
+    "flake8>=7,<8",
+    "isort>=6,<7",
+    "pip-audit>=2.10,<3",
+    "pytest>=8,<9",
+]
+
 [project.scripts]
 saas-cost = "saas_cost_analyzer.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/dianuhs/saas-cost-analyzer"
-Repository = "https://github.com/dianuhs/saas-cost-analyzer.git"
-"Bug Tracker" = "https://github.com/dianuhs/saas-cost-analyzer/issues"
+Homepage = "https://github.com/cloudandcapital/saas-cost-analyzer"
+Repository = "https://github.com/cloudandcapital/saas-cost-analyzer.git"
+"Bug Tracker" = "https://github.com/cloudandcapital/saas-cost-analyzer/issues"
 
 [tool.hatch.version]
 path = "saas_cost_analyzer/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["./saas_cost_analyzer"]
+
+[tool.black]
+target-version = ["py310"]
+
+[tool.isort]
+profile = "black"

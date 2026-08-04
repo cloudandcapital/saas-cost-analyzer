@@ -9,14 +9,14 @@ Zoom, Adobe, Stripe, and a generic invoice fallback.
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator, List, Set
-
 
 # ---------------------------------------------------------------------------
 # FOCUS 1.0 record
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class FocusRecord:
@@ -53,6 +53,7 @@ FOCUS_FIELDNAMES = list(FocusRecord.__dataclass_fields__.keys())
 # Provider detection
 # ---------------------------------------------------------------------------
 
+
 def detect_provider(columns: Set[str]) -> str:
     """
     Detect SaaS provider from the set of CSV column names.
@@ -66,14 +67,21 @@ def detect_provider(columns: Set[str]) -> str:
     cols_orig = columns
 
     # Salesforce: OrgId or Contract or Salesforce in column names
-    if any(c in cols_orig for c in ("OrgId", "ContractId", "Contract")) or \
-       any("salesforce" in c.lower() for c in cols_orig) or \
-       "orgid" in cols_lower or "contract" in cols_lower:
+    if (
+        any(c in cols_orig for c in ("OrgId", "ContractId", "Contract"))
+        or any("salesforce" in c.lower() for c in cols_orig)
+        or "orgid" in cols_lower
+        or "contract" in cols_lower
+    ):
         return "salesforce"
 
     # Snowflake: WAREHOUSE_NAME or CREDITS_USED
-    if "WAREHOUSE_NAME" in cols_orig or "CREDITS_USED" in cols_orig or \
-       "warehouse_name" in cols_lower or "credits_used" in cols_lower:
+    if (
+        "WAREHOUSE_NAME" in cols_orig
+        or "CREDITS_USED" in cols_orig
+        or "warehouse_name" in cols_lower
+        or "credits_used" in cols_lower
+    ):
         return "snowflake"
 
     # Databricks: workspace_id or dbu
@@ -82,8 +90,9 @@ def detect_provider(columns: Set[str]) -> str:
 
     # Slack: workspace + (members or active_members)
     if "workspace" in cols_lower and (
-        "members" in cols_lower or "active_members" in cols_lower or
-        "total_members" in cols_lower
+        "members" in cols_lower
+        or "active_members" in cols_lower
+        or "total_members" in cols_lower
     ):
         return "slack"
 
@@ -102,11 +111,19 @@ def detect_provider(columns: Set[str]) -> str:
         return "adobe"
 
     # Stripe: amount + customer_id + invoice_id
-    if "amount" in cols_lower and "customer_id" in cols_lower and "invoice_id" in cols_lower:
+    if (
+        "amount" in cols_lower
+        and "customer_id" in cols_lower
+        and "invoice_id" in cols_lower
+    ):
         return "stripe"
 
     # Generic invoice fallback: vendor + amount + invoice_date
-    if "vendor" in cols_lower and "amount" in cols_lower and "invoice_date" in cols_lower:
+    if (
+        "vendor" in cols_lower
+        and "amount" in cols_lower
+        and "invoice_date" in cols_lower
+    ):
         return "generic"
 
     raise ValueError(
@@ -119,6 +136,7 @@ def detect_provider(columns: Set[str]) -> str:
 # ---------------------------------------------------------------------------
 # Load + normalize
 # ---------------------------------------------------------------------------
+
 
 def load_and_normalize(path: Path) -> List[FocusRecord]:
     """Read a SaaS billing CSV, auto-detect provider, return FOCUS 1.0 records."""
@@ -152,6 +170,7 @@ def load_and_normalize(path: Path) -> List[FocusRecord]:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _get(row: dict, *keys: str, default: str = "") -> str:
     """Return first non-empty value matching any of the given keys."""
     for k in keys:
@@ -165,11 +184,14 @@ def _get(row: dict, *keys: str, default: str = "") -> str:
 # Provider-specific normalizers
 # ---------------------------------------------------------------------------
 
+
 def _normalize_salesforce(rows: list[dict]) -> Iterator[FocusRecord]:
     for row in rows:
         yield FocusRecord(
             BilledCost=_get(row, "BilledAmount", "Amount", "billed_amount"),
-            ResourceId=_get(row, "UserEmail", "user_email", "ContractId", "contract_id"),
+            ResourceId=_get(
+                row, "UserEmail", "user_email", "ContractId", "contract_id"
+            ),
             ServiceName="Salesforce",
             ChargePeriodStart=_get(row, "BillingPeriodStart", "billing_period_start"),
             ChargePeriodEnd=_get(row, "BillingPeriodEnd", "billing_period_end"),
