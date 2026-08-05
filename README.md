@@ -20,12 +20,14 @@ The repository includes two interfaces:
 - Inactive assigned seats and unassigned seats are disjoint and combined once per application renewal.
 - No command changes a vendor, cloud, contract, user, or license.
 
-## Install and run
+The public demo is credential-free and uses entirely illustrative data.
+
+## Install and run the released CLI
 
 Python 3.10 or later is required.
 
 ```bash
-pipx install "git+https://github.com/cloudandcapital/saas-cost-analyzer.git"
+pipx install "git+https://github.com/cloudandcapital/saas-cost-analyzer.git@v0.2.0"
 saas-cost --version
 ```
 
@@ -41,14 +43,11 @@ The bundled fixture and its default run metadata are deterministic and entirely 
 The installed package can produce the same demo without a repository checkout:
 
 ```bash
-saas-cost ccac --demo
-```
-
-Emit the canonical pipeline result:
-
-```bash
 saas-cost ccac --demo --output saas-cost-result.json
 ```
+
+The command writes `saas-cost-result.json`; rerunning with the same path
+replaces that explicitly named local file.
 
 For a real local export, prepare the same strict contract and declare real mode:
 
