@@ -250,7 +250,7 @@ def load_bundle(path: Path) -> Bundle:
     if not isinstance(apps, list) or not apps:
         raise GovernanceError("applications must be a non-empty array")
     seen_apps: set[str] = set()
-    seen_charge_periods: dict[str, tuple[date, date, str]] = {}
+    seen_charges: dict[str, str] = {}
     for ai, app in enumerate(apps):
         p = f"applications[{ai}]"
         if not isinstance(app, dict):
@@ -361,16 +361,12 @@ def load_bundle(path: Path) -> Bundle:
                 raise GovernanceError(
                     f"{p}.contract.service_period_end must be after service_period_start"
                 )
-            previous_charge = seen_charge_periods.get(charge_id)
-            if (
-                previous_charge
-                and service_start < previous_charge[1]
-                and previous_charge[0] < service_end
-            ):
+            previous_app = seen_charges.get(charge_id)
+            if previous_app is not None:
                 raise GovernanceError(
-                    f"charge {charge_id} has overlapping service-period allocations in {previous_charge[2]} and {app_id}"
+                    f"duplicate charge identity {charge_id} in {previous_app} and {app_id}"
                 )
-            seen_charge_periods[charge_id] = (service_start, service_end, app_id)
+            seen_charges[charge_id] = app_id
         invoices = app.get("invoices")
         if not isinstance(invoices, list):
             raise GovernanceError(f"{p}.invoices must be an array")

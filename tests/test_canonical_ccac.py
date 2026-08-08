@@ -11,7 +11,7 @@ from click.testing import CliRunner
 
 from saas_cost_analyzer.ccac import build_result
 from saas_cost_analyzer.cli import cli
-from saas_cost_analyzer.governance import GovernanceError
+from saas_cost_analyzer.governance import GovernanceError, load_bundle
 
 DATA = Path(__file__).parents[1] / "saas_cost_analyzer" / "data"
 LEGACY = DATA / "illustrative-governance-v2.json"
@@ -207,13 +207,67 @@ def test_missing_service_period_or_charge_identity_fails(tmp_path: Path, field: 
         _build(_write(tmp_path, bundle, "missing.json"))
 
 
-def test_duplicate_charge_allocation_fails(tmp_path: Path):
+@pytest.mark.parametrize(
+    "service_start,service_end",
+    [
+        ("2026-07-01", "2026-10-01"),
+        ("2027-01-01", "2027-04-01"),
+    ],
+)
+def test_duplicate_charge_identity_fails_across_applications(
+    tmp_path: Path, service_start: str, service_end: str
+):
     bundle = _json(SCOPE)
     bundle["applications"][1]["contract"]["charge_id"] = bundle["applications"][0][
         "contract"
     ]["charge_id"]
-    with pytest.raises(GovernanceError, match="overlapping service-period allocations"):
+    bundle["applications"][1]["contract"]["service_period_start"] = service_start
+    bundle["applications"][1]["contract"]["service_period_end"] = service_end
+    with pytest.raises(
+        GovernanceError,
+        match=r"duplicate charge identity charge\.crm\.annual-2025-12 in crm and design",
+    ):
         _build(_write(tmp_path, bundle, "duplicate-charge.json"))
+
+
+def test_three_record_duplicate_charge_sequence_fails(tmp_path: Path):
+    bundle = _json(SCOPE)
+    first = bundle["applications"][0]
+    middle = bundle["applications"][1]
+    last = copy.deepcopy(first)
+    middle["contract"]["charge_id"] = first["contract"]["charge_id"]
+    middle["contract"]["service_period_start"] = "2027-01-01"
+    middle["contract"]["service_period_end"] = "2027-04-01"
+    last["id"] = "crm-repeated"
+    last["contract"]["service_period_start"] = "2026-06-01"
+    last["contract"]["service_period_end"] = "2026-08-01"
+    bundle["applications"] = [first, middle, last]
+    with pytest.raises(
+        GovernanceError,
+        match=r"duplicate charge identity charge\.crm\.annual-2025-12 in crm and design",
+    ):
+        _build(_write(tmp_path, bundle, "three-charge-records.json"))
+
+
+def test_unique_charge_identities_with_independent_periods_remain_valid(tmp_path: Path):
+    bundle = _json(SCOPE)
+    bundle["applications"][1]["contract"]["service_period_start"] = "2027-01-01"
+    bundle["applications"][1]["contract"]["service_period_end"] = "2027-04-01"
+    loaded = load_bundle(_write(tmp_path, bundle, "unique-charges.json"))
+    assert [app["contract"]["charge_id"] for app in loaded.raw["applications"]] == [
+        "charge.crm.annual-2025-12",
+        "charge.design.2026-q3",
+    ]
+
+
+def test_bundled_scope_invoice_evidence_matches_contract_charges():
+    for app in _json(SCOPE)["applications"]:
+        contract = app["contract"]
+        assert len(app["invoices"]) == 1
+        invoice = app["invoices"][0]
+        assert invoice["period_start"] == contract["service_period_start"]
+        assert invoice["period_end"] == contract["service_period_end"]
+        assert invoice["amount"] == contract["commitment"]
 
 
 def test_invoice_commitment_and_opportunity_metrics_are_not_scope_inputs():
