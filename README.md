@@ -1,12 +1,12 @@
 # SaaS Cost Analyzer
 
-Evidence-aware, read-only SaaS spend and renewal governance. Version 0.2 separates contracts, invoices, entitlements, assignments, and activity so that missing evidence cannot become a savings claim.
+Evidence-aware, read-only SaaS spend and renewal governance. Version 0.3 preserves the released CCAC 1.0 compatibility result and can explicitly emit a period-aligned canonical SaaS scope under CCAC 1.1.
 
 For the complete six-tool demo and roadmap, see [Tech Spend Command Center](https://github.com/cloudandcapital/tech-spend-command-center).
 
 The repository includes two interfaces:
 
-- `governance` and `ccac` are the production-oriented v0.2 path.
+- `governance` and `ccac` are the production-oriented governance and contract paths.
 - `analyze`, `normalize`, and `compare` preserve the v0.1 provider-CSV workflow. Those adapters are convenience mappings, not certified FOCUS datasets and not sufficient evidence for renewal decisions.
 
 ## Trust semantics
@@ -56,6 +56,22 @@ saas-cost ccac --input /path/to/local-governance-bundle.json --mode real
 ```
 
 Inputs are only read. Output defaults to standard output; `--output` writes only the requested local result file. Real mode marks source data customer-confidential; it does not upload anything.
+
+The default remains the byte-stable `ccac/1.0.0` compatibility result. To emit the canonical SaaS technology-spend scope from the bundled scenario:
+
+```bash
+saas-cost ccac --demo --contract-version 1.1.0 --output saas-cost-result-1.1.json
+```
+
+For a local CCAC 1.1 run, supply a strict `saas-cost-analyzer/2.1` governance bundle and a separate `saas-cost-analysis/1.0` declaration:
+
+```bash
+saas-cost ccac \
+  --input /path/to/governance-v2.1.json \
+  --analysis /path/to/analysis-v1.json \
+  --mode real \
+  --contract-version 1.1.0
+```
 
 ## Canonical input: `saas-cost-analyzer/2.0`
 
@@ -112,6 +128,22 @@ The modeled capacity is non-additive at the executive-report boundary until an a
 
 Demo mode supplies fixed illustrative `run_id` and `generated_at` values so repeated runs are byte-identical. A pipeline orchestrator can override them with `--run-id` and `--generated-at`; real-input runs generate current metadata unless those options are supplied.
 
+### Canonical SaaS scope under CCAC 1.1
+
+The versioned `saas-cost-analyzer/2.1` bundle adds explicit application vendor, billing provider, billing channel, technology scope, charge identity, and half-open contract service periods. The separate `saas-cost-analysis/1.0` declaration owns the reporting period, accounting basis, coverage, absent-charge treatment, allocation and rounding conventions, component treatments, and total-eligibility claim. Applications are never classified from display names.
+
+The bundled scenario reports `2026-07-01` through `2026-07-22`, start-inclusive and end-exclusive, in UTC. Each application period-net-cost component is calculated with `Decimal` as:
+
+```text
+contract commitment × overlapping calendar days ÷ service-period calendar days
+```
+
+Each component is rounded once to the USD minor unit using round-half-up. The CRM component allocates `8640 × 21 ÷ 365` to USD `497.10`; Design allocates `1050 × 21 ÷ 92` to USD `239.67`. Their exact serialized sum is the canonical `metric.tech-spend.scope.saas` value of USD `736.77`.
+
+The canonical scope includes only explicitly classified `saas_invoice_or_entitlement` components. Full invoice totals, annualized commitments, renewal exposure, estimated renewal-reduction capacity, direct-AI vendor billing, and cloud-provider billing are excluded. Renewal and opportunity calculations remain independent diagnostics and cannot change period spend without a change to the underlying contract commitment or service period.
+
+Only the exact bundled illustrative governance and analysis fixtures may declare complete coverage and `total_eligible: true`. Real or custom inputs must declare partial coverage, unknown absent charges, and `total_eligible: false`; local files do not establish complete organizational SaaS coverage.
+
 ## Legacy provider CSV interface
 
 Auto-detected adapters exist for Salesforce-shaped, Snowflake-shaped, Databricks-shaped, Slack-shaped, GitHub-shaped, Zoom-shaped, Adobe-shaped, Stripe-shaped, and generic invoice CSVs.
@@ -131,11 +163,11 @@ uv run --with pytest pytest -q
 uv build
 ```
 
-The CCAC reference validator lives in the separate pipeline contract project. CI for this repository tests Python 3.10–3.12; cross-repository validation belongs in the pipeline integration suite.
+CI verifies the exact released CCAC 0.2.0 wheel before using it to validate the CCAC 1.1 result. The validator remains a CI/test acceptance dependency, not a production runtime dependency.
 
 ## Pipeline compatibility
 
-SaaS Cost Analyzer `0.2.x` feeds Tech Spend Command Center `0.2.x` through `ccac/1.0.0`. Invoice costs remain observed, contractual commitments remain separate, and renewal capacity remains estimated and non-additive until a later verified outcome. The complete illustrative acceptance run passes independent validation. Cloud Cost Guard remains unchanged until its downstream adapter is reviewed separately.
+SaaS Cost Analyzer `0.3.x` preserves the `ccac/1.0.0` compatibility path and can explicitly emit its canonical SaaS scope through `ccac/1.1.0`. Invoice costs remain observed, contractual commitments remain separate, and renewal capacity remains estimated and non-additive until a later verified outcome. Consumers and other producers remain unchanged.
 
 ## Deliberate limits
 
