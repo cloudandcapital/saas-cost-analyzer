@@ -6,13 +6,28 @@ import hashlib
 import re
 import uuid
 from datetime import date, datetime, timedelta, timezone
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any
 
 from . import __version__
-from .governance import Bundle, GovernanceError, analyze_bundle, load_bundle
+from .governance import (
+    SCOPE_CONTRACT_VERSION,
+    AnalysisDeclaration,
+    Bundle,
+    GovernanceError,
+    analyze_bundle,
+    load_analysis,
+    load_bundle,
+)
 
 CONTRACT = "ccac/1.0.0"
+SCOPE_CONTRACT = "ccac/1.1.0"
+LEGACY_DEMO_SHA256 = "06f6ad7a437a018c1492339f46262af6a46c26d43192fdae46b64ddb9f28f3f2"
+SCOPE_DEMO_SHA256 = "5e64cd03076e6b3d091842d331d04aee4f42112b3edbb3c1ffd04fcd9467f869"
+SCOPE_ANALYSIS_SHA256 = (
+    "18cd7fdf491195b48604f974ba0cb203d85a8598c4a6eb45d053da3d8d28fcf8"
+)
 
 
 def _timestamp(value: str | None) -> str:
@@ -72,17 +87,198 @@ def _metric(
     }
 
 
+def _add_saas_scope(
+    result: dict[str, Any],
+    bundle: Bundle,
+    declaration: AnalysisDeclaration,
+    evidence_id: str,
+    analysis_evidence_id: str,
+) -> None:
+    declared = declaration.raw
+    report_start = date.fromisoformat(declared["period"]["start"])
+    report_end = date.fromisoformat(declared["period"]["end"])
+    report_period = {**declared["period"]}
+    currency = bundle.raw["currency"]
+    if currency != "USD":
+        raise GovernanceError("CCAC 1.1 canonical SaaS scope currently requires USD")
+    components: list[dict[str, Any]] = []
+    component_values: list[Decimal] = []
+    component_ids: set[str] = set()
+    for app in bundle.raw["applications"]:
+        if app["billing_channel"] != "saas_invoice_or_entitlement":
+            raise GovernanceError(
+                f"{app['id']} cannot enter SaaS scope from billing channel {app['billing_channel']}"
+            )
+        if app["technology_scope"] != "saas":
+            raise GovernanceError(f"{app['id']} is not classified as SaaS")
+        contract = app["contract"]
+        service_start = date.fromisoformat(contract["service_period_start"])
+        service_end = date.fromisoformat(contract["service_period_end"])
+        overlap_start = max(report_start, service_start)
+        overlap_end = min(report_end, service_end)
+        overlap_days = (overlap_end - overlap_start).days
+        service_days = (service_end - service_start).days
+        if overlap_days <= 0:
+            raise GovernanceError(
+                f"{app['id']} service period has no reporting-period overlap"
+            )
+        commitment = Decimal(str(contract["commitment"]))
+        period_cost = (
+            commitment * Decimal(overlap_days) / Decimal(service_days)
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        mid = f"metric.saas.{_slug(app['id'])}.period-net-cost"
+        if mid in component_ids:
+            raise GovernanceError(f"duplicate SaaS period-cost component: {mid}")
+        component_ids.add(mid)
+        component_values.append(period_cost)
+        components.append(
+            {
+                "id": mid,
+                "name": f"{app['name']} reporting-period net cost",
+                "value": float(period_cost),
+                "unknown_reason": None,
+                "unit": "currency",
+                "currency": currency,
+                "basis": "calculated",
+                "additivity": "additive",
+                "period": report_period,
+                "dimensions": {
+                    "scope": "saas",
+                    "application_id": app["id"],
+                    "application": app["name"],
+                    "vendor": app["vendor"],
+                    "billing_provider": app["billing_provider"],
+                    "billing_channel": app["billing_channel"],
+                    "technology_scope": app["technology_scope"],
+                    "service_period_start": service_start.isoformat(),
+                    "service_period_end": service_end.isoformat(),
+                    "overlap_start": overlap_start.isoformat(),
+                    "overlap_end": overlap_end.isoformat(),
+                    "commitment_amount": str(commitment),
+                    "charge_id": contract["charge_id"],
+                    "overlap_days": str(overlap_days),
+                    "service_period_days": str(service_days),
+                    "cost_basis": "net_cost",
+                },
+                "formula": "contract commitment * overlapping calendar days / service-period calendar days; round half up to currency minor unit",
+                "input_metric_ids": [],
+                "evidence_ids": [evidence_id, analysis_evidence_id],
+                "quality_status": "valid",
+            }
+        )
+    total = sum(component_values, Decimal("0.00"))
+    canonical = {
+        "id": "metric.tech-spend.scope.saas",
+        "name": "Canonical SaaS scope spend",
+        "value": float(total),
+        "unknown_reason": None,
+        "unit": "currency",
+        "currency": currency,
+        "basis": "calculated",
+        "additivity": "additive",
+        "period": report_period,
+        "dimensions": {
+            "scope": "saas",
+            "billing_channel": "saas_invoice_or_entitlement",
+            "cost_basis": "net_cost",
+        },
+        "formula": "sum rounded application reporting-period net-cost components exactly once",
+        "input_metric_ids": [item["id"] for item in components],
+        "evidence_ids": [evidence_id, analysis_evidence_id],
+        "quality_status": "valid",
+        "accounting_boundary": {
+            "relationship": "canonical_scope_spend",
+            "scope": "saas",
+            "canonical_owner": "saas-cost-analyzer",
+            "source_channel": "saas_invoice_or_entitlement",
+            "cost_basis": "net_cost",
+            "coverage": declared["completeness"]["status"],
+            "total_eligible": declared["eligibility"]["total_eligible"],
+            "eligibility_reason": declared["eligibility"]["explanation"],
+            "currency_minor_unit": 0.01,
+            "allocation_of_metric_id": None,
+            "component_treatments": declared["component_treatments"],
+            "inclusion_rules": [
+                "Include explicitly classified saas_invoice_or_entitlement application commitments allocated to the reporting-period overlap."
+            ],
+            "exclusion_rules": [
+                "Exclude direct-AI vendor and cloud-provider billing.",
+                "Exclude invoice totals, annualized commitments, renewal exposure, and estimated renewal-reduction capacity.",
+            ],
+            "cross_scope_treatments": {
+                "direct_ai_vendor": "excluded",
+                "provider_billed_ai": "excluded",
+            },
+            "overlap": {
+                "disposition": "resolved",
+                "treatment": "Each application charge has one explicit half-open service period and enters the canonical scope once.",
+            },
+        },
+    }
+    result["metrics"].extend(components)
+    result["metrics"].append(canonical)
+    result["extensions"]["saas_cost_analyzer"]["period_cost_reconciliation"] = {
+        "allocation_convention": declared["allocation_convention"],
+        "rounding_convention": declared["rounding_convention"],
+        "net_cost_definition": declared["net_cost_definition"],
+        "component_metric_ids": canonical["input_metric_ids"],
+        "component_total": float(total),
+        "canonical_scope_total": float(total),
+        "difference": 0.0,
+        "status": "passed",
+    }
+
+
 def build_result(
-    path: Path, *, mode: str, run_id: str | None = None, generated_at: str | None = None
+    path: Path,
+    *,
+    mode: str,
+    run_id: str | None = None,
+    generated_at: str | None = None,
+    contract_version: str = "1.0.0",
+    analysis_path: Path | None = None,
+    compatibility_demo: bool = False,
+    bundled_demo: bool = False,
 ) -> dict[str, Any]:
     if mode not in {"illustrative", "real"}:
         raise GovernanceError("mode must be illustrative or real")
     bundle: Bundle = load_bundle(path)
+    if contract_version not in {"1.0.0", "1.1.0"}:
+        raise GovernanceError("contract_version must be 1.0.0 or 1.1.0")
+    declaration = None
+    if contract_version == "1.1.0":
+        if bundle.raw["schema_version"] != SCOPE_CONTRACT_VERSION:
+            raise GovernanceError(
+                f"CCAC 1.1 requires governance bundle {SCOPE_CONTRACT_VERSION}"
+            )
+        if analysis_path is None:
+            raise GovernanceError("CCAC 1.1 requires --analysis")
+        declaration = load_analysis(analysis_path)
+        if declaration.raw["mode"] != mode:
+            raise GovernanceError("analysis mode contradicts requested mode")
+        if (
+            declaration.raw["completeness"]["status"] == "complete"
+            or declaration.raw["eligibility"]["total_eligible"] is True
+        ) and not (
+            bundled_demo
+            and bundle.content_hash == SCOPE_DEMO_SHA256
+            and declaration.content_hash == SCOPE_ANALYSIS_SHA256
+        ):
+            raise GovernanceError(
+                "complete, total-eligible SaaS coverage is restricted to the exact bundled illustrative scenario"
+            )
     if bundle.raw["mode"] != mode:
         raise GovernanceError(
             f"bundle mode {bundle.raw['mode']!r} cannot be used for {mode!r} analysis"
         )
     analysis = analyze_bundle(bundle)
+    legacy_demo = (
+        compatibility_demo
+        and contract_version == "1.0.0"
+        and mode == "illustrative"
+        and bundle.content_hash == LEGACY_DEMO_SHA256
+    )
+    producer_version = "0.2.0" if legacy_demo else __version__
     try:
         rid = str(uuid.UUID(run_id)) if run_id else str(uuid.uuid4())
     except (ValueError, TypeError) as exc:
@@ -102,6 +298,8 @@ def build_result(
         [snapshot_period["end"]] + [row["period_end"] for row in invoice_rows]
     )
     period = {"start": overall_start, "end": overall_end, "timezone": "UTC"}
+    if declaration is not None:
+        period = {**declaration.raw["period"]}
     source_id = "source.saas-governance.bundle"
     evidence_id = "evidence.saas-governance.bundle"
     inputs = [
@@ -109,7 +307,7 @@ def build_result(
             "id": source_id,
             "source_type": "saas_governance_bundle",
             "source_version": analysis["schema_version"],
-            "adapter_version": __version__,
+            "adapter_version": producer_version,
             "content_sha256": bundle.content_hash,
             "access": (
                 "illustrative_fixture" if mode == "illustrative" else "local_read_only"
@@ -136,6 +334,43 @@ def build_result(
             "content_sha256": bundle.content_hash,
         }
     ]
+    analysis_evidence_id = "evidence.saas-governance.analysis"
+    if declaration is not None:
+        analysis_source_id = "source.saas-governance.analysis"
+        inputs.append(
+            {
+                "id": analysis_source_id,
+                "source_type": "saas_cost_analysis_declaration",
+                "source_version": declaration.raw["schema_version"],
+                "adapter_version": producer_version,
+                "content_sha256": declaration.content_hash,
+                "access": (
+                    "illustrative_fixture"
+                    if mode == "illustrative"
+                    else "local_read_only"
+                ),
+                "data_classification": (
+                    "public_illustrative"
+                    if mode == "illustrative"
+                    else "customer_confidential"
+                ),
+                "lossy_mapping": False,
+                "mapping_notes": [
+                    "Reporting period, accounting basis, completeness, allocation, rounding, and eligibility remain separate from contract and invoice evidence."
+                ],
+            }
+        )
+        evidence.append(
+            {
+                "id": analysis_evidence_id,
+                "kind": "contract",
+                "source_ids": [analysis_source_id],
+                "description": declaration.raw["completeness"]["description"],
+                "locator": "json:period,completeness,eligibility",
+                "observed_at": generated,
+                "content_sha256": declaration.content_hash,
+            }
+        )
     metrics: list[dict[str, Any]] = []
     findings: list[dict[str, Any]] = []
     opportunities: list[dict[str, Any]] = []
@@ -470,7 +705,10 @@ def build_result(
             opportunities.append(
                 {
                     "id": f"opportunity.saas.{slug}.renewal-seat-review",
-                    "producer": {"name": "saas-cost-analyzer", "version": __version__},
+                    "producer": {
+                        "name": "saas-cost-analyzer",
+                        "version": producer_version,
+                    },
                     "opportunity_type": "saas_reclaim",
                     "title": f"Review {app['reviewable_seats']} {app['name']} seats by the open notice deadline",
                     "scope": {
@@ -559,10 +797,10 @@ def build_result(
         and assigned_seats == classified_assigned_seats
         else "failed"
     )
-    return {
-        "contract": CONTRACT,
+    result = {
+        "contract": CONTRACT if contract_version == "1.0.0" else SCOPE_CONTRACT,
         "document_type": "tool_result",
-        "producer": {"name": "saas-cost-analyzer", "version": __version__},
+        "producer": {"name": "saas-cost-analyzer", "version": producer_version},
         "run_id": rid,
         "generated_at": generated,
         "mode": mode,
@@ -609,3 +847,12 @@ def build_result(
             }
         },
     }
+    if declaration is not None:
+        _add_saas_scope(
+            result,
+            bundle,
+            declaration,
+            evidence_id,
+            analysis_evidence_id,
+        )
+    return result

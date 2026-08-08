@@ -106,6 +106,18 @@ def governance(ctx: click.Context, input_path: Path, output_format: str) -> None
     help="Required with --input; demo is always illustrative.",
 )
 @click.option(
+    "--analysis",
+    "analysis_path",
+    type=click.Path(path_type=Path, dir_okay=False),
+    help="Required saas-cost-analysis/1.0 declaration for CCAC 1.1.",
+)
+@click.option(
+    "--contract-version",
+    type=click.Choice(["1.0.0", "1.1.0"]),
+    default="1.0.0",
+    show_default=True,
+)
+@click.option(
     "--run-id", default=None, help="Optional UUID for deterministic pipeline runs."
 )
 @click.option("--generated-at", default=None, help="Optional RFC3339 timestamp.")
@@ -122,6 +134,8 @@ def ccac(
     input_path: Path | None,
     demo: bool,
     mode: str | None,
+    analysis_path: Path | None,
+    contract_version: str,
     run_id: str | None,
     generated_at: str | None,
     output_path: Path | None,
@@ -131,9 +145,12 @@ def ccac(
         if demo == (input_path is not None):
             raise GovernanceError("choose exactly one of --demo or --input")
         if demo:
-            input_path = (
-                Path(__file__).parent / "data" / "illustrative-governance-v2.json"
-            )
+            data_dir = Path(__file__).parent / "data"
+            if contract_version == "1.1.0":
+                input_path = data_dir / "illustrative-governance-v2.1.json"
+                analysis_path = data_dir / "illustrative-analysis-v1.json"
+            else:
+                input_path = data_dir / "illustrative-governance-v2.json"
             mode = "illustrative"
             run_id = run_id or "123e4567-e89b-12d3-a456-426614174040"
             generated_at = generated_at or "2026-08-04T12:20:00Z"
@@ -143,7 +160,14 @@ def ccac(
         content = (
             json.dumps(
                 build_result(
-                    input_path, mode=mode, run_id=run_id, generated_at=generated_at
+                    input_path,
+                    mode=mode,
+                    run_id=run_id,
+                    generated_at=generated_at,
+                    contract_version=contract_version,
+                    analysis_path=analysis_path,
+                    compatibility_demo=demo and contract_version == "1.0.0",
+                    bundled_demo=demo and contract_version == "1.1.0",
                 ),
                 indent=2,
             )

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0 — unreleased
+
+- Preserve the released bundled CCAC 1.0 compatibility artifact byte-for-byte while reporting current provenance for custom inputs.
+- Add an explicit CCAC 1.1 canonical SaaS scope aligned to the shared July 1–22 reporting period.
+- Allocate explicit contract service periods with Decimal arithmetic and USD minor-unit round-half-up reconciliation.
+- Separate run-level accounting, completeness, allocation, rounding, and eligibility assertions into `saas-cost-analysis/1.0`.
+- Exclude invoice totals, annualized commitments, renewal exposure, opportunity capacity, direct-AI billing, and cloud-provider billing from canonical SaaS period spend.
+
 ## 0.2.0
 
 - Add strict `saas-cost-analyzer/2.0` governance bundles and CCAC 1.0 output.

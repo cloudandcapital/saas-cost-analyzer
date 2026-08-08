@@ -102,7 +102,7 @@ def test_cli_governance_and_ccac():
     assert json.loads(analyzed.output)["schema_version"] == "saas-cost-analyzer/2.0"
     ccac = runner.invoke(cli, ["ccac", "--input", str(DEMO), "--mode", "illustrative"])
     assert ccac.exit_code == 0
-    assert json.loads(ccac.output)["producer"]["version"] == "0.2.0"
+    assert json.loads(ccac.output)["producer"]["version"] == "0.3.0"
 
 
 def test_packaged_demo_cli_requires_no_repo_fixture():

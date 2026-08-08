@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "saas-cost-analyzer"
-version = "0.2.0"
+version = "0.3.0"
 description = "Evidence-aware SaaS spend, entitlement, activity, and renewal governance with CCAC output"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -47,6 +47,9 @@ path = "saas_cost_analyzer/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["./saas_cost_analyzer"]
+
+[tool.hatch.build]
+exclude = ["**/* 2.*"]
 
 [tool.black]
 target-version = ["py310"]
