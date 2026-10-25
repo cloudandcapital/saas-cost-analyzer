@@ -9,7 +9,7 @@ description = "Evidence-aware SaaS spend, entitlement, activity, and renewal gov
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "Diana Molski", email = "polush@gmail.com" }]
+authors = [{ name = "Diana Molski", email = "diana@cloudandcapital.com" }]
 keywords = ["finops", "saas", "focus", "billing", "cost", "cli", "salesforce", "snowflake", "slack"]
 classifiers = [
     "Development Status :: 4 - Beta",
