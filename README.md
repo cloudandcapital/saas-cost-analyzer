@@ -180,3 +180,8 @@ SaaS Cost Analyzer `0.3.x` preserves the `ccac/1.0.0` compatibility path and can
 - Realized savings require a later verified outcome; this producer emits no verified savings.
 
 Licensed under MIT. Public findings and examples must remain non-mutating and clearly illustrative.
+
+
+### Development Python versions
+
+The tool and its tests support Python 3.10 and newer. Run dependency auditing with Python 3.11 or newer; the audit tooling is included in the development extra on those versions.
